@@ -1,0 +1,4 @@
+colorlog~=6.7.0
+requests~=2.31.0
+environs~=9.5.0
+fake-useragent~=1.2.1
