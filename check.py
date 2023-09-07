@@ -120,6 +120,7 @@ def check_status():
     uid = data['uid']
     reception_date = data['receptionDate']
     passport_status = data['passportStatus']['name']
+    description = data['passportStatus']['description']
     internal_status = data['internalStatus']['name']
     percent = data['internalStatus']['percent']
 
@@ -140,10 +141,14 @@ def check_status():
     if percent != last_percent:
         logger.warning(f'Процент готовности изменился теперь он составляет: {percent}%')
         message = (
-            f'Заявление №<a href="https://info.midpass.ru/?id={uid}">{uid}</a> от даты <i>{reception_date}</i> имеет '
-            f'статус <code>{passport_status}</code> (внутренний статус <code>{internal_status}</code>) процент '
-            f'готовности <code>{percent}%</code>'
+            f'📑 <b>Заявление</b>: №<a href="https://info.midpass.ru/?id={uid}">{uid}</a>\n'
+            f'📆 <b>Дата подачи</b>: {reception_date}\n'
+            f'🔍 <b>Текущий статус</b>: {passport_status}\n'
+            f'🔒 <b>Внутренний статус</b>: {internal_status}\n'
+            f'🔋 <b>Готовность</b>: {percent}%'
         )
+        if description:
+            message = message + f'\n📝 <b>Описание</b>: {description}'
         send_telegram_message(message)
 
         # Обновление последнего значения процента в файле
