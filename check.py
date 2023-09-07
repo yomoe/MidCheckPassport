@@ -37,7 +37,7 @@ API_TOKEN: str = env.str('BOT_TOKEN')
 CHAT_ID: int = env.int('CHAT_ID')
 
 MID_ENDPOINT: str = env.str('MID_ENDPOINT')
-ID_REQUEST: str = env.str('ID_REQUEST')
+ID_REQUESTS: list = env.str('ID_REQUEST').split(',')
 
 
 def create_scheduled_task_bats(exe_path, create_bat_path, delete_bat_path, env_path):
@@ -81,11 +81,11 @@ pause"""
 
     for task_type, task_info in tasks.items():
         if os.path.exists(task_info['path']):
-            logger.info(f'Файл {task_info["path"]} существует. Пропускаем...')
+            logger.debug(f'Файл {task_info["path"]} существует. Пропускаем...')
             continue
         with open(task_info['path'], "w") as f:
             f.write(task_info['content'])
-            logger.info(f'Файл {task_info["path"]} был создан')
+            logger.debug(f'Файл {task_info["path"]} был создан')
 
 
 def send_telegram_message(message):
@@ -104,16 +104,38 @@ def send_telegram_message(message):
         logger.error(f'Ошибка: {e}')
 
 
-def check_status():
+def get_last_percent_file(id_request):
+    """Возвращает путь к файлу, в котором хранится последний процент для данного ID заявления."""
+    return os.path.join(exe_parent, f'check_{id_request}.txt')
+
+
+def check_status(id_request):
     """Проверяет статус заявления и отправляет уведомления в Telegram при изменениях."""
     # Получение данных с сайта
-    url = MID_ENDPOINT + ID_REQUEST
+    logger.info(f'Проверяем статус заявления {id_request}')
+    url = MID_ENDPOINT + id_request
     try:
         response = requests.get(url, headers=HEADERS)
         response.raise_for_status()
         data = response.json()
+    except requests.exceptions.HTTPError as errh:
+        if response.status_code == 400:
+            try:
+                error_data = response.json()
+                if 'code' in error_data and error_data['code'] == 'REQUEST_UID_NOT_VALID':
+                    logger.error(f'Неверный код заявления: {id_request}. Пожалуйста, проверьте корректность кода.')
+                    logger.info('------------------------------------------------------')
+                    send_telegram_message(
+                        f'❌ <b>Неверный код заявления</b>: <code>{id_request}</code>\n'
+                        f'Пожалуйста, проверьте корректность кода.'
+                    )
+                    return
+            except json.JSONDecodeError:
+                pass
+        logger.error(f"HTTP Error: {errh}")
     except (requests.RequestException, json.JSONDecodeError) as e:
-        logging.error(f'Ошибка получения данных: {e}')
+        logger.error(f'Ошибка получения данных: {e}')
+        logger.info('------------------------------------------------------')
         return
 
     # Извлечение данных из ответа
@@ -125,8 +147,10 @@ def check_status():
     percent = data['internalStatus']['percent']
 
     # Чтение последнего значения процента из файла
+    last_percent_file = get_last_percent_file(id_request)
+    # Чтение последнего значения процента из файла
     try:
-        with open(LAST_PERCENT_FILE, "r") as f:
+        with open(last_percent_file, "r") as f:
             last_percent_str = f.read().strip()
             if not last_percent_str:
                 logging.info('Файл пустой, устанавливаем значение -1')
@@ -134,7 +158,7 @@ def check_status():
             else:
                 last_percent = int(last_percent_str)
     except (FileNotFoundError, ValueError):
-        logging.info(f'Файл {txt_path} не найден, создаем новый файл')
+        logging.debug(f'Файл {last_percent_file} не найден, создаем новый файл')
         last_percent = -1
 
     # Сравнение процентов и отправка сообщения в Telegram
@@ -152,14 +176,18 @@ def check_status():
         send_telegram_message(message)
 
         # Обновление последнего значения процента в файле
-        with open(LAST_PERCENT_FILE, "w") as f:
+        with open(last_percent_file, "w") as f:
             f.write(str(percent))
-        logger.info(f'Сохраняем изменения в файле {LAST_PERCENT_FILE}')
+        logger.debug(f'Сохраняем изменения в файле {last_percent_file}')
     else:
         logger.info(f'Процент готовности не изменился: {percent}%')
-    logger.info('Процесс проверки статуса заявления завершен')
+    logger.info('------------------------------------------------------')
 
 
 if __name__ == "__main__":
+    logger.info('Процесс проверки статуса заявления запущен')
+    logger.info('------------------------------------------------------')
     create_scheduled_task_bats(exe_path, bat_path_create, bat_path_delete, env_path)
-    check_status()
+    for id_request in ID_REQUESTS:
+        check_status(id_request)
+    logger.info('Процесс проверки статуса заявления завершен')
